@@ -1,0 +1,950 @@
+[
+    {
+        "id": "d74aa44f.abd978",
+        "type": "tab",
+        "label": "MannlCounter",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "70026bb0.299294",
+        "type": "mqtt in",
+        "z": "d74aa44f.abd978",
+        "name": "Mannl-Counter",
+        "topic": "+/devices/+/up",
+        "qos": "2",
+        "datatype": "json",
+        "broker": "e9d6c761.34181",
+        "x": 340,
+        "y": 160,
+        "wires": [
+            [
+                "8f57de3f.5d7c8"
+            ]
+        ]
+    },
+    {
+        "id": "8f57de3f.5d7c8",
+        "type": "function",
+        "z": "d74aa44f.abd978",
+        "name": "PrepareDedup",
+        "func": "var ret = {};\n\nret.payload = msg.payload;\n\nif (\"fCnt\" in msg.payload) {\n  ret.payload.framecounter = msg.payload.fCnt;\n  const buffer = Buffer.from(msg.payload.devEUI, 'base64');\n  const bufString = buffer.toString('hex');\n  msg.payload.devEUI = bufString\n  ret.topic = msg.payload.devEUI;\n  ret.type = \"chirpstack\";\n}\nif (\"counter\" in msg.payload) {\n  ret.payload.framecounter = msg.payload.counter;\n  const buffer = msg.payload.hardware_serial.toLowerCase();\n  msg.payload.hardware_serial = buffer;\n  ret.topic = msg.payload.hardware_serial \n  ret.type = \"ttn\";\n}\n\nreturn ret;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 600,
+        "y": 160,
+        "wires": [
+            [
+                "d8f93ec4.4a93"
+            ]
+        ]
+    },
+    {
+        "id": "d8f93ec4.4a93",
+        "type": "deduplicate",
+        "z": "d74aa44f.abd978",
+        "name": "Dedup",
+        "keyproperty": "framecounter",
+        "expirypolicy": "keep",
+        "registryclass": "",
+        "noderole": "standalone",
+        "expiry": "30",
+        "x": 770,
+        "y": 160,
+        "wires": [
+            [
+                "37c36ee1.45199a"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "6ca2c7bc.c8ac3",
+        "type": "function",
+        "z": "d74aa44f.abd978",
+        "name": "Payload Parser Chirpstack",
+        "func": "var ret = [];\n\n// Empty InfluxDB Object\nret[0] = { \"fields\": {}, \"tags\": {}, \"measurement\": \"mannl\"};\n\n// Tags\nret[0].tags.app_id          = msg.payload.applicationName;\nret[0].tags.dev_id          = msg.payload.deviceName;\nret[0].tags.hardware_serial = msg.payload.devEUI.toLowerCase();\nret[0].tags.server          = 'chirpstack';\n\n// Keys\npayload_fields = JSON.parse(msg.payload.objectJSON)\n\nret[0].fields.voltage = payload_fields.v;\nret[0].fields.counter         = msg.payload.fCnt;\nif ('t' in payload_fields)\n  ret[0].fields.temperature     = payload_fields.t;\n\nif (msg.payload.deviceName =='prototyp2'){\n\n    // Mannl \n    if ('countmin' in payload_fields)\n      ret[0].fields.countmin     = -(payload_fields.countmin);\n    if ('countall' in payload_fields)\n      ret[0].fields.countall     = -(payload_fields.countall);\n}else{\n        // Mannl \n    if ('countmin' in payload_fields)\n      ret[0].fields.countmin     = payload_fields.countmin;\n    if ('countall' in payload_fields)\n      ret[0].fields.countall     = payload_fields.countall;  \n      \n}\n \nmsg.payload = ret;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 920,
+        "y": 220,
+        "wires": [
+            [
+                "6e38d01.ac940b",
+                "17e9c57d.fc1c1b"
+            ]
+        ]
+    },
+    {
+        "id": "37c36ee1.45199a",
+        "type": "switch",
+        "z": "d74aa44f.abd978",
+        "name": "SelectStack",
+        "property": "type",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "chirpstack",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "ttn",
+                "vt": "str"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 650,
+        "y": 260,
+        "wires": [
+            [
+                "6ca2c7bc.c8ac3"
+            ],
+            [
+                "ec1c2801.3bb4d8"
+            ]
+        ]
+    },
+    {
+        "id": "ec1c2801.3bb4d8",
+        "type": "function",
+        "z": "d74aa44f.abd978",
+        "name": "Payload Parser TTN",
+        "func": "var ret = [];\n\n// Empty InfluxDB Object\nret[0] = { \"fields\": {}, \"tags\": {}, \"measurement\": \"mannl\"};\n\n// Tags\nret[0].tags.app_id          = msg.payload.app_id;\nret[0].tags.dev_id          = msg.payload.dev_id;\nret[0].tags.hardware_serial = msg.payload.hardware_serial;\nret[0].tags.server          ='ttn';\n\n// Keys\nret[0].fields.voltage = msg.payload.payload_fields.v;\nret[0].fields.counter         = msg.payload.counter;\n\nif (msg.payload.dev_id =='prototyp2'){\n\n    //Mannl\n    if ('countall' in msg.payload.payload_fields)\n      ret[0].fields.countall     = -(msg.payload.payload_fields.countall);\n    if ('countmin' in msg.payload.payload_fields)\n      ret[0].fields.countmin     = -(msg.payload.payload_fields.countmin);  \n\n}else{\n    //Mannl\n    if ('countall' in msg.payload.payload_fields)\n      ret[0].fields.countall     = msg.payload.payload_fields.countall;\n    if ('countmin' in msg.payload.payload_fields)\n      ret[0].fields.countmin     = msg.payload.payload_fields.countmin;  \n\n}\n\n\n\nmsg.payload = ret;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 900,
+        "y": 280,
+        "wires": [
+            [
+                "6e38d01.ac940b",
+                "17e9c57d.fc1c1b"
+            ]
+        ]
+    },
+    {
+        "id": "6e38d01.ac940b",
+        "type": "debug",
+        "z": "d74aa44f.abd978",
+        "name": "",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "x": 1170,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "17e9c57d.fc1c1b",
+        "type": "influxdb batch",
+        "z": "d74aa44f.abd978",
+        "influxdb": "37b1337c.486fbc",
+        "precision": "",
+        "retentionPolicy": "",
+        "name": "influxdb ttnmd",
+        "x": 1160,
+        "y": 280,
+        "wires": []
+    },
+    {
+        "id": "9150c80f.33a608",
+        "type": "comment",
+        "z": "d74aa44f.abd978",
+        "name": "Besucherzählung mit AttNode (Prototyp)",
+        "info": "",
+        "x": 420,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "372f8b18.e23c3c",
+        "type": "inject",
+        "z": "d74aa44f.abd978",
+        "name": "Timer 1min",
+        "topic": "60 sek Timer",
+        "payload": "true",
+        "payloadType": "bool",
+        "repeat": "60",
+        "crontab": "",
+        "once": false,
+        "onceDelay": "30",
+        "x": 330,
+        "y": 740,
+        "wires": [
+            [
+                "b3d34f5.855b3b"
+            ]
+        ]
+    },
+    {
+        "id": "a26678d6.bfd538",
+        "type": "influxdb in",
+        "z": "d74aa44f.abd978",
+        "influxdb": "5d0f9708.e591b",
+        "name": "Summe",
+        "query": "SELECT sum(last) from (SELECT last(\"countall\") FROM \"mannl\" GROUP BY dev_id)",
+        "rawOutput": false,
+        "precision": "",
+        "retentionPolicy": "",
+        "x": 660,
+        "y": 740,
+        "wires": [
+            [
+                "997a0026.a734e8",
+                "a3855d58.3056a",
+                "aaea7619.fa5d98"
+            ]
+        ]
+    },
+    {
+        "id": "dd3d42da.1387c8",
+        "type": "debug",
+        "z": "d74aa44f.abd978",
+        "name": "",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "x": 1090,
+        "y": 720,
+        "wires": []
+    },
+    {
+        "id": "997a0026.a734e8",
+        "type": "function",
+        "z": "d74aa44f.abd978",
+        "name": "Auswertung",
+        "func": "var gesamt = msg.payload[0].sum;\nif (gesamt<0) {\n    gesamt=0;\n}\nvar ret={};\nret.headers = {};\nret.headers['x-api-key'] = 'API-Key';\nret.url='https://rrptspqiv2.execute-api.eu-central-1.amazonaws.com/default/write_api?place_id=6&count='+gesamt;\nreturn ret;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 870,
+        "y": 740,
+        "wires": [
+            [
+                "dd3d42da.1387c8",
+                "898b1b5e.7d5fe8"
+            ]
+        ]
+    },
+    {
+        "id": "a3855d58.3056a",
+        "type": "debug",
+        "z": "d74aa44f.abd978",
+        "name": "",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "x": 870,
+        "y": 800,
+        "wires": []
+    },
+    {
+        "id": "3526693a.11be36",
+        "type": "mqtt in",
+        "z": "d74aa44f.abd978",
+        "name": "TTN sczwo_app001",
+        "topic": "+/devices/+/up",
+        "qos": "2",
+        "datatype": "json",
+        "broker": "27277c92.273224",
+        "x": 350,
+        "y": 440,
+        "wires": [
+            [
+                "7000b8bf.f2f7a8"
+            ]
+        ]
+    },
+    {
+        "id": "7000b8bf.f2f7a8",
+        "type": "function",
+        "z": "d74aa44f.abd978",
+        "name": "PrepareDedup",
+        "func": "var ret = {};\n\nret.payload = msg.payload;\n\nif (\"fCnt\" in msg.payload) {\n  ret.payload.framecounter = msg.payload.fCnt;\n  const buffer = Buffer.from(msg.payload.devEUI, 'base64');\n  const bufString = buffer.toString('hex');\n  msg.payload.devEUI = bufString\n  ret.topic = msg.payload.devEUI;\n  ret.type = \"chirpstack\";\n}\nif (\"counter\" in msg.payload) {\n  ret.payload.framecounter = msg.payload.counter;\n  const buffer = msg.payload.hardware_serial.toLowerCase();\n  msg.payload.hardware_serial = buffer;\n  ret.topic = msg.payload.hardware_serial \n  ret.type = \"ttn\";\n}\n\nreturn ret;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 600,
+        "y": 440,
+        "wires": [
+            [
+                "ba9e9455.4f4f68"
+            ]
+        ]
+    },
+    {
+        "id": "ba9e9455.4f4f68",
+        "type": "deduplicate",
+        "z": "d74aa44f.abd978",
+        "name": "Dedup",
+        "keyproperty": "framecounter",
+        "expirypolicy": "keep",
+        "registryclass": "",
+        "noderole": "standalone",
+        "expiry": "30",
+        "x": 770,
+        "y": 440,
+        "wires": [
+            [
+                "662b0deb.0ec47c"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "6c18814e.be2a18",
+        "type": "function",
+        "z": "d74aa44f.abd978",
+        "name": "Payload Parser Chirpstack",
+        "func": "var ret = [];\n\n// Empty InfluxDB Object\nret[0] = { \"fields\": {}, \"tags\": {}, \"measurement\": \"mannl\"};\n\n// Tags\nret[0].tags.app_id          = msg.payload.applicationName;\nret[0].tags.dev_id          = msg.payload.deviceName;\nret[0].tags.hardware_serial = msg.payload.devEUI.toLowerCase();\nret[0].tags.server          = 'chirpstack';\n\n// Keys\npayload_fields = JSON.parse(msg.payload.objectJSON)\n\nret[0].fields.voltage = payload_fields.v;\nret[0].fields.counter         = msg.payload.fCnt;\nif ('t' in payload_fields)\n  ret[0].fields.temperature     = payload_fields.t;\n\nif (msg.payload.deviceName.includes('protoattnode_a')){\n    if ('countmin' in payload_fields)\n      ret[0].fields.countmin     = -(payload_fields.countmin);\n    if ('countall' in payload_fields)\n      ret[0].fields.countall     = -(payload_fields.countall);\n}else if(msg.payload.deviceName.includes('protoattnode_e')){\n        // Mannl \n    if ('countmin' in payload_fields)\n      ret[0].fields.countmin     = payload_fields.countmin;\n    if ('countall' in payload_fields)\n      ret[0].fields.countall     = payload_fields.countall;  \n}\n \nmsg.payload = ret;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 920,
+        "y": 500,
+        "wires": [
+            [
+                "9be52a10.d81ea",
+                "39b5446.cf28b3c"
+            ]
+        ]
+    },
+    {
+        "id": "662b0deb.0ec47c",
+        "type": "switch",
+        "z": "d74aa44f.abd978",
+        "name": "SelectStack",
+        "property": "type",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "chirpstack",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "ttn",
+                "vt": "str"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 650,
+        "y": 540,
+        "wires": [
+            [
+                "6c18814e.be2a18"
+            ],
+            [
+                "16d044fe.a139d3"
+            ]
+        ]
+    },
+    {
+        "id": "16d044fe.a139d3",
+        "type": "function",
+        "z": "d74aa44f.abd978",
+        "name": "Payload Parser TTN",
+        "func": "var ret = [];\n\n// Empty InfluxDB Object\nret[0] = { \"fields\": {}, \"tags\": {}, \"measurement\": \"mannl\"};\n\n// Tags\nret[0].tags.app_id          = msg.payload.app_id;\nret[0].tags.dev_id          = msg.payload.dev_id;\nret[0].tags.hardware_serial = msg.payload.hardware_serial;\nret[0].tags.server          = 'ttn';\n\n// Keys\nret[0].fields.voltage = msg.payload.payload_fields.v;\nret[0].fields.counter         = msg.payload.counter;\n\nif (msg.payload.dev_id.includes('protoattnode_a')){\n    if ('countall' in msg.payload.payload_fields)\n      ret[0].fields.countall     = -(msg.payload.payload_fields.countall);\n    if ('countmin' in msg.payload.payload_fields)\n      ret[0].fields.countmin     = -(msg.payload.payload_fields.countmin);  \n\n}else if (msg.payload.dev_id.includes('protoattnode_e')){\n    if ('countall' in msg.payload.payload_fields)\n      ret[0].fields.countall     = msg.payload.payload_fields.countall;\n    if ('countmin' in msg.payload.payload_fields)\n      ret[0].fields.countmin     = msg.payload.payload_fields.countmin;  \n}\n\n\n\nmsg.payload = ret;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 900,
+        "y": 560,
+        "wires": [
+            [
+                "9be52a10.d81ea",
+                "39b5446.cf28b3c"
+            ]
+        ]
+    },
+    {
+        "id": "9be52a10.d81ea",
+        "type": "debug",
+        "z": "d74aa44f.abd978",
+        "name": "",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "x": 1190,
+        "y": 440,
+        "wires": []
+    },
+    {
+        "id": "39b5446.cf28b3c",
+        "type": "influxdb batch",
+        "z": "d74aa44f.abd978",
+        "influxdb": "5d0f9708.e591b",
+        "precision": "",
+        "retentionPolicy": "",
+        "name": "influxdb zwoenitz",
+        "x": 1170,
+        "y": 560,
+        "wires": []
+    },
+    {
+        "id": "6f3b565b.77275",
+        "type": "comment",
+        "z": "d74aa44f.abd978",
+        "name": "Besucherzählung mit AttNode (Zwönitz Live)",
+        "info": "",
+        "x": 430,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "898b1b5e.7d5fe8",
+        "type": "http request",
+        "z": "d74aa44f.abd978",
+        "name": "everyonecounts ",
+        "method": "POST",
+        "ret": "txt",
+        "paytoqs": false,
+        "url": "",
+        "tls": "4873f1cf.47cde8",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "x": 1120,
+        "y": 780,
+        "wires": [
+            [
+                "e618187a.ab30f8"
+            ]
+        ]
+    },
+    {
+        "id": "e618187a.ab30f8",
+        "type": "debug",
+        "z": "d74aa44f.abd978",
+        "name": "",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "x": 1290,
+        "y": 780,
+        "wires": []
+    },
+    {
+        "id": "aaea7619.fa5d98",
+        "type": "function",
+        "z": "d74aa44f.abd978",
+        "name": "Schwellwerte",
+        "func": "function formatDate(template, date) {\n  var specs = 'YYYY:MM:DD:HH:mm:ss'.split(':');\n  date = new Date(date);\n  // Timezone offset\n  var ms=date.getTime();\n  ms = ms + 120 * 60 * 1000;  //120 Minuten addieren\n  date.setTime(ms);\n  return date.toISOString().split(/[-:.TZ]/).reduce(function(template, item, i) {\n    return template.split(specs[i]).join(item);\n  }, template);\n}\n\n\n\nvar ret = {};\nvar level = {};\n\n// Summe aus influx\nret = msg.payload[0].sum;\nif (ret<0) {\n    ret=0;\n}\n\n// aktuelle Zeit\nvar now = new Date();\nnode.warn(\"Aktuelle Zeit \" + now.toISOString() + \" UTC\");\n  \n// letzter Sendezeitpunkt \nvar lastSend = flow.get(\"lastSend\");\n// Initialer Wert wenn noch nicht gesetzt\nif (lastSend === undefined){\n    lastSend = new Date(0);\n}\n\n// letzter Meldegrund\nvar lastTopic = flow.get(\"lastTopic\");\n// Initialer Wert wenn noch nicht gesetzt\nif (lastTopic === undefined){\n    lastTopic = '';\n}\n\n// letzter Wert\nvar lastValue = flow.get(\"lastValue\");\n\nnode.warn(\"Letzter Sendezeitpunkt \" + lastSend.toISOString());\n\n// Differenz aber der neu benachrichtigt werden soll (in Sekunden)\nvar resendTime = 300; \n\n// Absenderadresse\nmsg.from ='nodered@ttn-md.de';\n\n\n//Wenn Counterall > 1000, dann kritisch\nif (msg.payload[0].sum>1000){\n    level = \"Die derzeitige Besucherzahl beträgt: \" + ret + \"\\nZeitpunkt :\" + formatDate(\"DD.MM.YYYY HH:mm:ss\",now);\n    msg.topic = \"Besucherzahl > 1000 - Kritischer Wert\";\n}else if (msg.payload[0].sum>800 & msg.payload[0].sum<950){\n    level = \"Die derzeitige Besucherzahl beträgt: \"+ret + \"\\nZeitpunkt :\" + formatDate(\"DD.MM.YYYY HH:mm:ss\",now);\n    msg.topic = \"Besucherzahl > 800 - Achtung\";\n}else if (msg.payload[0].sum<750){\n    level = \"Die derzeitige Besucherzahl beträgt: \"+ret + \"\\nZeitpunkt :\" + formatDate(\"DD.MM.YYYY HH:mm:ss\",now);\n    msg.topic = \"Besucherzahl < 750 - Wert OK\";\n}\n\n//neue Payload leer setzen, wenn leer wird nix gesendet\nmsg.payload ='';\n// Prüfen ob neu gemailt werden muss\nif ((Math.round((now.getTime()/1000) - (lastSend.getTime()/1000)) >= resendTime) || (lastTopic != msg.topic)  ){\n    if (Math.round((now.getTime()/1000) - (lastSend.getTime()/1000)) >= resendTime){\n        node.warn(\"Mail erneut verschicken wegen Zeitablauf\" + now + \" - \" + lastSend + \" > \" + resendTime );\n    }\n    if (lastTopic != msg.topic){\n        node.warn(\"Mail erneut verschicken wegen ungleichem Topic \" + lastTopic + \" != \" + msg.topic );\n    }\n    \n    // Nur senden wenn Werte auch unterschiedlich sind \n    if(lastValue != ret){\n        node.warn(\"Werte unterschiedlich \" +  lastValue +\" != \" + ret);\n        msg.payload = level;\n        flow.set('lastValue', ret);        \n    }else{\n        node.warn(\"Werte gleich \" +  lastValue +\" != \" + ret + \" nichts senden\");\n    }\n    flow.set('lastSend', now);\n    flow.set('lastTopic', msg.topic);\n\n}else{\n    node.warn(\"Diff :\" + Math.round((now.getTime()/1000) - (lastSend.getTime()/1000)) + \" sekunden || \" + lastTopic +\" != \" + msg.topic);\n}\n\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 570,
+        "y": 880,
+        "wires": [
+            [
+                "4dec9070.c20b98",
+                "27cb0aa3.d2470e"
+            ]
+        ]
+    },
+    {
+        "id": "66c67f93.da361",
+        "type": "e-mail",
+        "z": "d74aa44f.abd978",
+        "server": "",
+        "port": "25",
+        "secure": false,
+        "tls": false,
+        "name": "",
+        "dname": "",
+        "x": 1070,
+        "y": 1060,
+        "wires": []
+    },
+    {
+        "id": "84ff621f.2bef78",
+        "type": "comment",
+        "z": "d74aa44f.abd978",
+        "name": "Benachrichtigung mit AttNode (Zwönitz Live) everyonecount + mail + telegram",
+        "info": "",
+        "x": 530,
+        "y": 660,
+        "wires": []
+    },
+    {
+        "id": "4dec9070.c20b98",
+        "type": "switch",
+        "z": "d74aa44f.abd978",
+        "name": "",
+        "property": "payload",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "nempty"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 1,
+        "x": 850,
+        "y": 880,
+        "wires": [
+            [
+                "8a5296e0.38c2e8",
+                "b4d55f5c.c1076"
+            ]
+        ]
+    },
+    {
+        "id": "9f2d9399.98eb58",
+        "type": "telegram sender",
+        "z": "d74aa44f.abd978",
+        "name": "Zwönitz-Bot",
+        "bot": "ad116f12.fe72d",
+        "x": 1310,
+        "y": 880,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "8a5296e0.38c2e8",
+        "type": "function",
+        "z": "d74aa44f.abd978",
+        "name": "telegram data",
+        "func": "var ret={};\nret.payload ={};\n\nret.payload.chatId = -xxxxxxxx;\nret.payload.type = 'message';\nret.payload.content = msg.payload;\n\nreturn ret;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 1100,
+        "y": 880,
+        "wires": [
+            [
+                "9f2d9399.98eb58"
+            ]
+        ]
+    },
+    {
+        "id": "27cb0aa3.d2470e",
+        "type": "debug",
+        "z": "d74aa44f.abd978",
+        "name": "",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "x": 570,
+        "y": 980,
+        "wires": []
+    },
+    {
+        "id": "b4d55f5c.c1076",
+        "type": "gate",
+        "z": "d74aa44f.abd978",
+        "name": "",
+        "controlTopic": "control",
+        "defaultState": "closed",
+        "openCmd": "open",
+        "closeCmd": "close",
+        "toggleCmd": "toggle",
+        "defaultCmd": "default",
+        "persist": true,
+        "x": 850,
+        "y": 1060,
+        "wires": [
+            [
+                "66c67f93.da361"
+            ]
+        ]
+    },
+    {
+        "id": "4f0a8a3d.9d9604",
+        "type": "inject",
+        "z": "d74aa44f.abd978",
+        "name": "Benachrichtigung an/aus",
+        "topic": "control",
+        "payload": "toggle",
+        "payloadType": "str",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 370,
+        "y": 1060,
+        "wires": [
+            [
+                "b4d55f5c.c1076"
+            ]
+        ]
+    },
+    {
+        "id": "b3d34f5.855b3b",
+        "type": "gate",
+        "z": "d74aa44f.abd978",
+        "name": "",
+        "controlTopic": "control",
+        "defaultState": "open",
+        "openCmd": "open",
+        "closeCmd": "close",
+        "toggleCmd": "toggle",
+        "defaultCmd": "default",
+        "persist": false,
+        "x": 510,
+        "y": 740,
+        "wires": [
+            [
+                "a26678d6.bfd538"
+            ]
+        ]
+    },
+    {
+        "id": "9bdf5ee9.e5ae",
+        "type": "inject",
+        "z": "d74aa44f.abd978",
+        "name": "Flow an/aus",
+        "topic": "control",
+        "payload": "toggle",
+        "payloadType": "str",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 330,
+        "y": 820,
+        "wires": [
+            [
+                "b3d34f5.855b3b"
+            ]
+        ]
+    },
+    {
+        "id": "18698cd1.a410f3",
+        "type": "inject",
+        "z": "d74aa44f.abd978",
+        "name": "1000",
+        "topic": "",
+        "payload": "[{\"sum\":1000}]",
+        "payloadType": "json",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 370,
+        "y": 900,
+        "wires": [
+            [
+                "aaea7619.fa5d98"
+            ]
+        ]
+    },
+    {
+        "id": "7332b8a.ce7f3c8",
+        "type": "inject",
+        "z": "d74aa44f.abd978",
+        "name": "850",
+        "topic": "",
+        "payload": "[{\"sum\":850}]",
+        "payloadType": "json",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 370,
+        "y": 940,
+        "wires": [
+            [
+                "aaea7619.fa5d98"
+            ]
+        ]
+    },
+    {
+        "id": "576fa1ef.7828",
+        "type": "inject",
+        "z": "d74aa44f.abd978",
+        "name": "700",
+        "topic": "",
+        "payload": "[{\"sum\":700}]",
+        "payloadType": "json",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 370,
+        "y": 980,
+        "wires": [
+            [
+                "aaea7619.fa5d98"
+            ]
+        ]
+    },
+    {
+        "id": "3c8b8e22.5979ca",
+        "type": "influxdb in",
+        "z": "d74aa44f.abd978",
+        "influxdb": "5d0f9708.e591b",
+        "name": "letzte Meldung vom Node",
+        "query": "SELECT last(\"voltage\") as voltage FROM  mannl group by dev_id",
+        "rawOutput": false,
+        "precision": "",
+        "retentionPolicy": "",
+        "x": 730,
+        "y": 1200,
+        "wires": [
+            [
+                "9040c374.9e952"
+            ]
+        ]
+    },
+    {
+        "id": "dac80832.fb7c",
+        "type": "inject",
+        "z": "d74aa44f.abd978",
+        "name": "Timer 1min",
+        "topic": "60 sek Timer",
+        "payload": "true",
+        "payloadType": "bool",
+        "repeat": "5",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 350,
+        "y": 1200,
+        "wires": [
+            [
+                "19dca2f7.9219d5"
+            ]
+        ]
+    },
+    {
+        "id": "9040c374.9e952",
+        "type": "function",
+        "z": "d74aa44f.abd978",
+        "name": "Auswertung",
+        "func": "//Zeitdifferenz 15 Minuten\nvar Timediff = 15 * 60 * 1000;\n\n// Mindestspannung Volt\nvar minVoltage = 2.99;\n\nvar now = new Date();\n\nvar txt = '';\nvar ret={};\n\n// letzter Meldegrund\nvar LastAlertMessage = flow.get(\"lastAlertMessage\");\n\n\nfunction formatDate(template, date) {\n  var specs = 'YYYY:MM:DD:HH:mm:ss'.split(':');\n  date = new Date(date);\n  // Timezone offset\n  var ms=date.getTime();\n  ms = ms + 120 * 60 * 1000;  //120 Minuten addieren\n  date.setTime(ms);\n  return date.toISOString().split(/[-:.TZ]/).reduce(function(template, item, i) {\n    return template.split(specs[i]).join(item);\n  }, template);\n}\n\n\nvar daten = msg.payload;// foreach loop (does not work in IE8 and lower!)\nvar i =0;\ndaten.forEach(function(data){\n    \n//    node.warn(data.dev_id);\n    \n    // checken ob Timestamp veraltet\n    var date= new Date(data.time);\n    if( now - date >Timediff){\n//        node.warn(\"Übertragungsfehler\");\n        txt = txt+ data.dev_id +\" zuletzt gemeldet am \" + formatDate(\"DD.MM.YYYY HH:mm:ss\",date) + \"\\n\";\n    }\n    \n    //checken ob Batterie low\n    if(data.voltage < minVoltage){\n//        node.warn(\"Unterspannung\");\n        txt = txt+ data.dev_id + \" Spannung \" +data.voltage + \" Volt. Batterien wechseln\\n\"; \n     }\n\n});\n\nif(txt !== '' && txt != LastAlertMessage){\n//    node.warn(\"senden\");\n    ret.topic = \"Achtung Node Banachrichtigung\";\n    ret.payload = txt;\n    // Absenderadresse \n    ret.from ='nodered@ttn-md.de';\n    flow.set(\"lastAlertMessage\",txt);\n}\nreturn ret;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 950,
+        "y": 1200,
+        "wires": [
+            [
+                "4dec9070.c20b98"
+            ]
+        ]
+    },
+    {
+        "id": "bcf80d48.f93eb8",
+        "type": "comment",
+        "z": "d74aa44f.abd978",
+        "name": "Benachrichtigung bei Ausfall eines Nodes via E-mail",
+        "info": "",
+        "x": 430,
+        "y": 1140,
+        "wires": []
+    },
+    {
+        "id": "71fc5e78.07828",
+        "type": "inject",
+        "z": "d74aa44f.abd978",
+        "name": "Flow an/aus",
+        "topic": "control",
+        "payload": "toggle",
+        "payloadType": "str",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 350,
+        "y": 1320,
+        "wires": [
+            [
+                "19dca2f7.9219d5"
+            ]
+        ]
+    },
+    {
+        "id": "19dca2f7.9219d5",
+        "type": "gate",
+        "z": "d74aa44f.abd978",
+        "name": "",
+        "controlTopic": "control",
+        "defaultState": "open",
+        "openCmd": "open",
+        "closeCmd": "close",
+        "toggleCmd": "toggle",
+        "defaultCmd": "default",
+        "persist": false,
+        "x": 510,
+        "y": 1200,
+        "wires": [
+            [
+                "3c8b8e22.5979ca"
+            ]
+        ]
+    },
+    {
+        "id": "31f64e5e.9b8382",
+        "type": "mqtt in",
+        "z": "d74aa44f.abd978",
+        "name": "Mannl-Counter Backup-System",
+        "topic": "+/devices/+/up",
+        "qos": "2",
+        "datatype": "json",
+        "broker": "e9d6c761.34181",
+        "x": 390,
+        "y": 240,
+        "wires": [
+            [
+                "8f57de3f.5d7c8"
+            ]
+        ]
+    },
+    {
+        "id": "a5c463a1.a97fa8",
+        "type": "mqtt in",
+        "z": "d74aa44f.abd978",
+        "name": "TTN sczwo_app001 - BackupSystem",
+        "topic": "+/devices/+/up",
+        "qos": "2",
+        "datatype": "json",
+        "broker": "27277c92.273224",
+        "x": 410,
+        "y": 500,
+        "wires": [
+            [
+                "7000b8bf.f2f7a8"
+            ]
+        ]
+    },
+    {
+        "id": "e9d6c761.34181",
+        "type": "mqtt-broker",
+        "z": "",
+        "name": "Mannl-Counter (Backup System)",
+        "broker": "eu.thethings.network",
+        "port": "8883",
+        "tls": "196e58d1.24b16f",
+        "clientid": "",
+        "usetls": true,
+        "compatmode": false,
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": ""
+    },
+    {
+        "id": "37b1337c.486fbc",
+        "type": "influxdb",
+        "z": "",
+        "hostname": "172.17.0.1",
+        "port": "8086",
+        "protocol": "http",
+        "database": "ttnmd",
+        "name": "InfluxDB TTNMD",
+        "usetls": false,
+        "tls": "196e58d1.24b16f"
+    },
+    {
+        "id": "5d0f9708.e591b",
+        "type": "influxdb",
+        "z": "",
+        "hostname": "172.17.0.1",
+        "port": "8086",
+        "protocol": "http",
+        "database": "zwoenitz",
+        "name": "zwoenitz",
+        "usetls": false,
+        "tls": "4873f1cf.47cde8"
+    },
+    {
+        "id": "27277c92.273224",
+        "type": "mqtt-broker",
+        "z": "",
+        "name": "Zwönitz Backup",
+        "broker": "eu.thethings.network",
+        "port": "8883",
+        "tls": "196e58d1.24b16f",
+        "clientid": "",
+        "usetls": true,
+        "compatmode": false,
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": ""
+    },
+    {
+        "id": "4873f1cf.47cde8",
+        "type": "tls-config",
+        "z": "",
+        "name": "",
+        "cert": "",
+        "key": "",
+        "ca": "",
+        "certname": "",
+        "keyname": "",
+        "caname": "",
+        "servername": "",
+        "verifyservercert": false
+    },
+    {
+        "id": "ad116f12.fe72d",
+        "type": "telegram bot",
+        "z": "",
+        "botname": "Zwönitz-Bot",
+        "usernames": "",
+        "chatids": "",
+        "baseapiurl": "",
+        "updatemode": "webhook",
+        "pollinterval": "300",
+        "usesocks": false,
+        "sockshost": "",
+        "socksport": "6667",
+        "socksusername": "anonymous",
+        "sockspassword": "",
+        "bothost": "",
+        "localbotport": "8443",
+        "publicbotport": "8443",
+        "privatekey": "",
+        "certificate": "",
+        "useselfsignedcertificate": false,
+        "sslterminated": false,
+        "verboselogging": true
+    },
+    {
+        "id": "196e58d1.24b16f",
+        "type": "tls-config",
+        "z": "",
+        "name": "eu.thethings.network",
+        "cert": "",
+        "key": "",
+        "ca": "",
+        "certname": "",
+        "keyname": "",
+        "caname": "mqtt-ca.pem",
+        "servername": "eu.thethings.network",
+        "verifyservercert": true
+    }
+]
